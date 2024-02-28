@@ -2,6 +2,7 @@
 #include "./ui_mainwindow.h"
 #include "credentialwidget.h"
 
+#include <QBuffer>
 #include <QFile>
 #include <openssl/evp.h>
 
@@ -37,16 +38,14 @@ bool MainWindow::readJSON()
     int ret_code = decryptFile(encryptedBytes, decryptedBytes);
     qDebug() << "ret_code = " << ret_code;
 
-    //QJsonDocument jsonDoc = QJsonDocument::fromJson(decryptedBytes);
-    //QJsonObject rootObject = jsonDoc.object();
-    /*
+    QJsonDocument jsonDoc = QJsonDocument::fromJson(decryptedBytes);
+    QJsonObject rootObject = jsonDoc.object();
+
     for(auto itm : rootObject["credit"].toArray()) {
            qDebug() << "*** itm = " << itm;
        }
-    */
-    //m_jsonarray = rootObject["credit"].toArray();
-    filterList("");
-    jsonFile.close();
+
+    m_jsonarray = rootObject["credit"].toArray();
     return true;
 }
 
@@ -77,7 +76,7 @@ int MainWindow::decryptFile(const QByteArray &encryptedBytes, QByteArray &decryp
     unsigned char iv[16] = {0};
     memcpy(iv, iv_ba.data(), 16);
 
-    const int BUF_LEN = 256;
+    //const int BUF_LEN = 256;
 
     //hex(key) = a6c284830c59bdea0d6f227758eee57e8e23a93dd8ffcd243b40ca39f00d78d1
     //hex(iv) = 29f11f244ea40f11facffd580a776e30
@@ -90,37 +89,27 @@ int MainWindow::decryptFile(const QByteArray &encryptedBytes, QByteArray &decryp
         return 0;
     }
     qDebug() << "EVP_DecryptInit_ex2() 0K";
+    int outLen = encryptedBytes.size() + EVP_CIPHER_block_size(EVP_aes_256_cbc());
+        decryptedBytes.resize(outLen);
 
-    unsigned char encrypted_buf[BUF_LEN] = {0}, decrypted_buf[BUF_LEN] = {0};
-    int encr_len, decr_len;
-
-    QDataStream encrypted_stream(encryptedBytes);
-    QDataStream decrypted_stream(&decryptedBytes, QIODevice::ReadWrite);
-    encr_len = encrypted_stream.readRawData(reinterpret_cast<char*>(encrypted_buf), BUF_LEN);
-    //qDebug() << "***  encr_len =" << encrypted_stream.readRawData(reinterpret_cast<char*>(encrypted_buf), BUF_LEN);
-    while(encr_len > 0)
-    {
-
-       if (!EVP_DecryptUpdate(ctx, decrypted_buf, &decr_len, encrypted_buf, encr_len)){
-           qDebug() << "EVP_DecryptUpdate ERROR";
-           EVP_CIPHER_CTX_free(ctx);
-           return 0;
-        }
-        qDebug() << "EVP_DecryptUpdate()" << reinterpret_cast<char*>(decrypted_buf);
-        decrypted_stream << QByteArray(reinterpret_cast<char*>(decrypted_buf), decr_len);
-        encr_len = encrypted_stream.readRawData(reinterpret_cast<char*>(encrypted_buf), BUF_LEN);
-
-    }
-
-    int tmplen;
-    if (!EVP_DecryptFinal_ex(ctx, decrypted_buf + decr_len, &tmplen)) {
-        qDebug() << "EVP_DecryptFinal_ex ERROR";
+    int decryptedLen = 0;
+    if (!EVP_DecryptUpdate(ctx, reinterpret_cast<unsigned char*>(decryptedBytes.data()), &outLen,
+                           reinterpret_cast<const unsigned char*>(encryptedBytes.constData()), encryptedBytes.size())) {
+        qWarning() << "Decryption failed during update";
         EVP_CIPHER_CTX_free(ctx);
         return 0;
     }
-    //decrypted_stream.writeRawData(reinterpret_cast<char*>(decrypted_buf), decr_len);
-    qDebug() << "ALL OK";
-    qDebug() << "*** decryptedBytes:" << decryptedBytes;
+    decryptedLen = outLen;
+
+    if (!EVP_DecryptFinal_ex(ctx, reinterpret_cast<unsigned char*>(decryptedBytes.data()) + decryptedLen, &outLen)) {
+        qWarning() << "Decryption failed during finalization";
+        EVP_CIPHER_CTX_free(ctx);
+        return 0;
+    }
+    decryptedLen += outLen;
+
     EVP_CIPHER_CTX_free(ctx);
+    decryptedBytes.resize(decryptedLen);
     return 1;
+
 }
