@@ -18,14 +18,15 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
-    bool readJSON();
+    bool readJSON(const QByteArray &aes256_key);
 
 private:
     Ui::MainWindow *ui;
     QJsonArray m_jsonarray; //структура данных, содержащая учетные данные
 public slots:
-    int decryptFile(const QByteArray &encryptedBytes, QByteArray &decryptedBytes);
+    int decryptFile(const QByteArray &aes256_key, const QByteArray &encryptedBytes, QByteArray &decryptedBytes);
 private slots:
     void filterList(const QString &text);
+    void on_editPin_returnPressed();
 };
 #endif // MAINWINDOW_H
