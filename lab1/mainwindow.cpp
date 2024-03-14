@@ -6,6 +6,9 @@
 #include <QFile>
 #include <QCryptographicHash>
 #include <openssl/evp.h>
+#include <QGuiApplication>
+#include <QClipboard>
+
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -61,8 +64,12 @@ void MainWindow::filterList(const QString &text)
         if (m_jsonarray[i].toObject()["site"].toString().contains(text, Qt::CaseInsensitive) || text == "") {
             QListWidgetItem * item = new QListWidgetItem();
             credentialwidget * itemWidget =
-                    new credentialwidget(m_jsonarray[i].toObject()["site"].toString(), m_jsonarray[i].toObject()["logpass"].toString(), m_jsonarray[i].toObject()["password"].toString());
+                    new credentialwidget(m_jsonarray[i].toObject()["site"].toString(), i);
+            QObject::connect(itemWidget, &credentialwidget::decryptLoginPassword,
+                             this, &MainWindow::decryptLoginPassword);
+
             qDebug() << "m_jsonarray" << m_jsonarray[i].toObject()["site"].toString(), m_jsonarray[i].toObject()["logpass"].toString(), m_jsonarray[i].toObject()["password"].toString();
+
             item->setSizeHint(itemWidget->sizeHint());
             ui->listWidget->addItem(item);
             ui->listWidget->setItemWidget(item, itemWidget);
@@ -126,17 +133,48 @@ void MainWindow::on_editPin_returnPressed()
     QByteArray hash = QCryptographicHash::hash(ui->editPin->text().toUtf8(), QCryptographicHash::Sha256);
     qDebug() << "Hash" << hash.toHex();
 
-    if (readJSON(hash)) {
-        ui->stackedWidget->setCurrentIndex(1);
-        filterList("");
+    if (m_isStartup) {
+        if (readJSON(hash)) {
+            ui->stackedWidget->setCurrentIndex(1);
+            filterList("");
+            m_isStartup = false;
+        } else {
+            ui->labLogin->setText("Неверный пин");
+            ui->labLogin->setStyleSheet("color:red;");
+        }
+
     } else {
-        ui->labLogin->setText("Неверный пин");
-        ui->labLogin->setStyleSheet("color:red;");
+        QByteArray encrypted_creds = QByteArray::fromHex(
+                    m_jsonarray[m_current_id].toObject()["logpass"].toString().toUtf8());
+        QByteArray decrypted_creds;
+
+        decryptFile(hash, encrypted_creds, decrypted_creds);
+        QJsonObject jsonCopy = QJsonDocument::fromJson(decrypted_creds).object();
+
+        if (m_field) {
+            QGuiApplication::clipboard()->setText(jsonCopy["password"].toString());
+        } else {
+            QGuiApplication::clipboard()->setText(jsonCopy["login"].toString());
+        }
+
+
+        //QGuiApplication::clipboard()->setText(QString::fromUtf8(decrypted_creds));
+        ui->stackedWidget->setCurrentIndex(1);
     }
 
     ui->editPin->setText(QString().fill('*',  ui->editPin->text().size()));
+    ui->editPin->clear();
     hash.setRawData(const_cast<const char*>(QByteArray().fill('*', 32).data()), 32);
     hash.clear();
 
 }
 
+void MainWindow::decryptLoginPassword(int id, credentialwidget::FIELD field)
+{
+    qDebug() << "*** slot decryptLogin()";
+    qDebug() << m_jsonarray[id].toObject()["logpass"].toString();
+    qDebug() << "*** field" << field;
+    m_field = field;
+    m_current_id = id;
+    ui->stackedWidget->setCurrentIndex(0);
+}
